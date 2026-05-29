@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>萤 · 暖光粒子</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #16121F; }
+  canvas { display: block; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+
+const CONFIG = {
+  bgColor: '#16121F',
+  countFor(w) { return w < 640 ? 90 : 180; },
+  colorStops: ['#FFD79A', '#F4A65A', '#FFC078'],
+  sizeMin: 1.5, sizeMax: 4,
+  drift: 0.15, damping: 0.96,
+  attractRadius: 220, attractForce: 0.6,
+  breathSpeed: 0.004, glowScale: 4,
+};
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 16.67, 3);
+  last = now;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = CONFIG.bgColor;
+  ctx.fillRect(0, 0, W, H);
+  // 后续任务在此插入 update + draw
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
