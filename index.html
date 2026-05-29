@@ -19,6 +19,8 @@
     backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   }
   #camBtn:hover { background: rgba(255,255,255,0.15); }
+  #camMode { position: fixed; right: 16px; bottom: 16px; z-index: 3;
+    color: rgba(255,246,224,0.6); font-size: 12px; font-family: monospace; }
 </style>
 </head>
 <body>
@@ -26,6 +28,7 @@
 <div id="scrim"></div>
 <canvas id="c"></canvas>
 <button id="camBtn">开启摄像头</button>
+<div id="camMode"></div>
 <script>
 "use strict";
 
@@ -37,6 +40,10 @@ const CONFIG = {
   gamma: 0.03, sigma: 0.08,
   attractRadius: 220, attractForce: 0.6,
   handGrace: 250,        // 手短暂丢失的宽限毫秒(防 active 闪烁)
+  attractForceStrong: 1.4,   // 握拳:强聚
+  repelForce: 0.9,           // 张手:推散
+  openThreshold: 1.6,        // 展开度 > 此 → 推散
+  fistThreshold: 1.0,        // 展开度 < 此 → 强聚
   breathSpeed: 0.004,
   glowScale: 5,          // 外晕半径 = size × 此值
   haloAlpha: 0.3,        // 外晕亮度(压低,避免灰蒙蒙的薄雾)
@@ -134,6 +141,8 @@ class CameraInput {
     this.stream = null;
     this.lastSeen = -Infinity;
     this.lastVideoTime = -1;
+    this.openness = null;
+    this.mode = 'neutral';
   }
   async start() {
     const { FilesetResolver, HandLandmarker } =
@@ -164,13 +173,22 @@ class CameraInput {
       this.y = palm.y * h;
       this.lastSeen = now;
       this.active = true;
-      // 【留白·手势】此处可从 res.landmarks[0] 的 21 点算 张手/握拳/捏合,
-      //   给 get() 返回的对象加 mode 字段,Theme 按需读取(本期不读)。
+      const lm = res.landmarks[0];
+      const scale = Math.hypot(lm[0].x - lm[9].x, lm[0].y - lm[9].y) || 1e-6;
+      const tips = [8, 12, 16, 20];
+      let sum = 0;
+      for (const t of tips) sum += Math.hypot(lm[t].x - lm[9].x, lm[t].y - lm[9].y);
+      const openRaw = (sum / tips.length) / scale;
+      this.openness = (this.openness == null) ? openRaw : this.openness * 0.7 + openRaw * 0.3;
+      if (this.openness > CONFIG.openThreshold) this.mode = 'repel';
+      else if (this.openness < CONFIG.fistThreshold) this.mode = 'attract';
+      else this.mode = 'neutral';
+      // 【留白·捏合】可加 拇指(4)-食指(8) 距离 → 更精细牵引(后续)
     } else if (now - this.lastSeen > CONFIG.handGrace) {
       this.active = false;
     }
   }
-  get() { return { x: this.x, y: this.y, active: this.active }; }
+  get() { return { x: this.x, y: this.y, active: this.active, mode: this.mode }; }
 }
 
 // Theme 接口约定:init(particles,cfg) / update(particles,point,dt,time,w,h) / draw(ctx,particles,cfg)
@@ -187,9 +205,15 @@ const FireflyTheme = {
         const dx = point.x - p.x, dy = point.y - p.y;
         const dist = Math.hypot(dx, dy);
         if (dist < CONFIG.attractRadius && dist > 0.001) {
-          const f = CONFIG.attractForce * (1 - dist / CONFIG.attractRadius) * dt;
-          p.vx += (dx / dist) * f;
-          p.vy += (dy / dist) * f;
+          const falloff = (1 - dist / CONFIG.attractRadius) * dt;
+          const dirx = dx / dist, diry = dy / dist;
+          if (point.mode === 'repel') {
+            const f = CONFIG.repelForce * falloff;
+            p.vx -= dirx * f; p.vy -= diry * f;
+          } else {
+            const f = (point.mode === 'attract' ? CONFIG.attractForceStrong : CONFIG.attractForce) * falloff;
+            p.vx += dirx * f; p.vy += diry * f;
+          }
         }
       }
       p.x += p.vx * dt; p.y += p.vy * dt;
@@ -259,6 +283,8 @@ function frame(now) {
   const point = activeInput.get();
   theme.update(system.particles, point, dt, now, W, H);
   theme.draw(ctx, system.particles, CONFIG);
+  if (cameraOn) document.getElementById('camMode').textContent =
+    activeInput.mode === 'repel' ? '散' : activeInput.mode === 'attract' ? '聚' : '·';
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
