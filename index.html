@@ -36,6 +36,7 @@ const CONFIG = {
   sizeMin: 1.5, sizeMax: 4,
   gamma: 0.03, sigma: 0.08,
   attractRadius: 220, attractForce: 0.6,
+  handGrace: 250,        // 手短暂丢失的宽限毫秒(防 active 闪烁)
   breathSpeed: 0.004,
   glowScale: 5,          // 外晕半径 = size × 此值
   haloAlpha: 0.3,        // 外晕亮度(压低,避免灰蒙蒙的薄雾)
@@ -124,10 +125,53 @@ class PointerInput {
   get() { return { x: this.x, y: this.y, active: this.active }; }
 }
 
-// 【留白·摄像头】未来实现 CameraInput,同样提供 get() -> {x,y,active}:
-//   用 MediaPipe Hands 取手心坐标 → 归一化到画布坐标;未识别到手时 active=false。
-//   MediaPipe 资源需下载到本地与本文件同目录(不走 CDN);摄像头需 HTTPS,故需托管运行。
-//   接入时只需:const input = new CameraInput(canvas); 其余代码不变。
+// CameraInput:实现 InputSource 接口,与 PointerInput 可互换。懒加载本地 MediaPipe。
+class CameraInput {
+  constructor(videoEl) {
+    this.video = videoEl;
+    this.x = 0; this.y = 0; this.active = false;
+    this.landmarker = null;
+    this.stream = null;
+    this.lastSeen = -Infinity;
+    this.lastVideoTime = -1;
+  }
+  async start() {
+    const { FilesetResolver, HandLandmarker } =
+      await import('./vendor/tasks-vision/vision_bundle.mjs');
+    const fileset = await FilesetResolver.forVisionTasks('./vendor/tasks-vision/wasm');
+    this.landmarker = await HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: './vendor/hand_landmarker.task' },
+      runningMode: 'VIDEO',
+      numHands: 1
+    });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    this.stream = stream;
+    this.video.srcObject = stream;
+    await this.video.play();
+  }
+  stop() {
+    if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
+    this.active = false;
+  }
+  detect(now, w, h) {
+    if (!this.landmarker || this.video.readyState < 2) return;
+    if (this.video.currentTime === this.lastVideoTime) return;
+    this.lastVideoTime = this.video.currentTime;
+    const res = this.landmarker.detectForVideo(this.video, now);
+    if (res.landmarks && res.landmarks.length > 0) {
+      const palm = res.landmarks[0][9]; // 中指根 ≈ 手心,比指尖稳
+      this.x = (1 - palm.x) * w;        // X 镜像(自拍视角)
+      this.y = palm.y * h;
+      this.lastSeen = now;
+      this.active = true;
+      // 【留白·手势】此处可从 res.landmarks[0] 的 21 点算 张手/握拳/捏合,
+      //   给 get() 返回的对象加 mode 字段,Theme 按需读取(本期不读)。
+    } else if (now - this.lastSeen > CONFIG.handGrace) {
+      this.active = false;
+    }
+  }
+  get() { return { x: this.x, y: this.y, active: this.active }; }
+}
 
 // Theme 接口约定:init(particles,cfg) / update(particles,point,dt,time,w,h) / draw(ctx,particles,cfg)
 const FireflyTheme = {
@@ -199,7 +243,8 @@ resize();
 const system = new ParticleSystem();
 system.init(W, H);
 
-const input = new PointerInput(canvas);
+const pointerInput = new PointerInput(canvas);
+let activeInput = pointerInput;
 const THEMES = { firefly: FireflyTheme };
 const theme = THEMES[new URLSearchParams(location.search).get('theme')] || FireflyTheme;
 theme.init(system.particles, CONFIG);
@@ -210,7 +255,8 @@ function frame(now) {
   last = now;
   ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, W, H); // 透明画布:背景由后面的图层(CSS/未来摄像头)提供
-  const point = input.get();
+  if (activeInput.detect) activeInput.detect(now, W, H);
+  const point = activeInput.get();
   theme.update(system.particles, point, dt, now, W, H);
   theme.draw(ctx, system.particles, CONFIG);
   requestAnimationFrame(frame);
@@ -220,25 +266,26 @@ requestAnimationFrame(frame);
 const camEl = document.getElementById('cam');
 const scrimEl = document.getElementById('scrim');
 const camBtn = document.getElementById('camBtn');
-let camStream = null;
+const cameraInput = new CameraInput(camEl);
+let cameraOn = false;
 
-async function enableCamera() {
-  camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-  camEl.srcObject = camStream;
-  await camEl.play();
-  camEl.style.display = 'block';
-  scrimEl.style.display = 'block';
-}
-function disableCamera() {
-  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
-  camEl.style.display = 'none';
-  scrimEl.style.display = 'none';
-}
 camBtn.addEventListener('click', async () => {
-  if (camStream) { disableCamera(); camBtn.textContent = '开启摄像头'; return; }
+  if (cameraOn) {
+    cameraInput.stop();
+    camEl.style.display = 'none';
+    scrimEl.style.display = 'none';
+    activeInput = pointerInput;
+    cameraOn = false;
+    camBtn.textContent = '开启摄像头';
+    return;
+  }
   camBtn.disabled = true; camBtn.textContent = '启动中…';
   try {
-    await enableCamera();
+    await cameraInput.start();
+    camEl.style.display = 'block';
+    scrimEl.style.display = 'block';
+    activeInput = cameraInput;
+    cameraOn = true;
     camBtn.textContent = '关闭摄像头';
   } catch (e) {
     alert('摄像头开启失败:' + e.message + '\n(需 HTTPS 或 localhost;file:// 不支持)');
