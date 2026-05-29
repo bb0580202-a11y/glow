@@ -1,0 +1,131 @@
+# 互动粒子·意境氛围页 — 设计文档
+
+> 日期:2026-05-29
+> 状态:设计待评审(v1 = 暖光萤火主题)
+
+## 1. 项目定位
+
+一个**全屏网页**,平时安静地飘着柔和的粒子,当作氛围背景看;凑近用鼠标/手指(以后可选摄像头)互动时,粒子被"吸引点"捧起、聚拢、再散开。
+
+核心体验关键词:**柔和、温柔、不矫作、有意境**。
+
+不是系统屏保(屏保不接受交互、拿不到摄像头),而是一个"可互动的氛围网页"。
+
+## 2. 技术栈与硬约束
+
+- **单个 HTML 文件**,自包含,无构建步骤。双击即可在浏览器打开(鼠标/触摸版)。
+- 绘制:Canvas 2D。
+- 输入:**Pointer Events**(`pointerdown/move/up`),一套代码同时兼容鼠标、触摸板、触屏、触控笔。
+- **国内约束**:不依赖任何境外 CDN;分享给无梯子的人也能用。
+  - 触摸/鼠标版:发文件双击即可,或拖到国内静态托管(如艾可秀)生成链接。
+  - 摄像头版(后续):MediaPipe 资源**下载下来与 HTML 同目录打包**,不走 CDN;摄像头需 HTTPS,故必须托管(艾可秀等国内免费静态托管,自带 HTTPS + 国内 CDN)。
+
+## 3. 整体架构(两个留白接口)
+
+```
+ParticleSystem  通用外壳:持有粒子数组、跑主循环(requestAnimationFrame)
+    每帧:
+      const point = inputSource.get()        // {x, y, active}
+      theme.update(particles, point, time)   // 决定怎么动
+      theme.draw(ctx, particles)             // 决定长啥样
+
+接口① InputSource —— 提供"吸引点" {x, y, active}
+      ├─ v1:PointerInput(鼠标/触摸板/触屏)
+      └─ 留白:CameraInput(MediaPipe 手心坐标),即插即换
+
+接口② Theme —— 决定运动算法 + 外观 + 对吸引点的反应
+      ├─ v1:FireflyTheme(暖光萤火:漂浮 + 吸引)
+      ├─ 留白:StarryNightTheme(梵高星空:曲线噪声流场 curl noise)
+      └─ 留白:RippleTheme(水波:波函数 sin/ripple)
+```
+
+**设计要点**:外壳 `ParticleSystem` 永不改动。换输入方式 = 换 `InputSource` 实现;换意境 = 换 `Theme` 实现。两者互不影响,也都与外壳解耦。
+
+### 接口契约
+
+```js
+// InputSource:任何输入源都实现 get()
+interface InputSource {
+  get(): { x: number, y: number, active: boolean }
+  // active=false 表示当前无吸引点(如手机松手、摄像头没识别到手)
+}
+
+// Theme:任何意境都实现 update + draw
+interface Theme {
+  init(particles, config)                  // 初始化粒子初态(位置/颜色等)
+  update(particles, point, dt, time)       // 每帧更新粒子状态
+  draw(ctx, particles, config)             // 每帧绘制
+}
+```
+
+## 4. v1 范围:Firefly(暖光萤火)主题
+
+只做这一个主题,跑通整套架构 + 输入手感。
+
+**意境**:浅暖色背景上,一群柔和的暖色光点缓慢无规律漂浮;吸引点出现时,附近的光点被温柔吸过去、聚成一小团,吸引点消失后慢慢散回自由漂浮。
+
+**粒子行为**:
+- 每个粒子有位置、速度、基础亮度、大小、随机相位(用于呼吸闪烁)。
+- 自由态:速度受微弱随机扰动 + 阻尼,呈布朗式缓慢漂浮;亮度按 sin(相位) 轻微呼吸。
+- 吸引态:与吸引点距离在影响半径内时,受一个朝向吸引点的柔和加速度(随距离衰减),越近越亮。
+
+## 5. Firefly 视觉/手感参数(集中在 CONFIG)
+
+> 这些是初始建议值,落地后会真机/真屏对着调。集中放在文件顶部 CONFIG 对象,方便你一处改全局。
+
+| 参数 | 建议初值 | 含义 |
+|---|---|---|
+| `count` | 桌面 180 / 手机 90 | 粒子数(按屏幕宽度自适应) |
+| `bgColor` | `#16121F`(深暮色,藏蓝褐) | 背景色(深底,见 §10 决定) |
+| `particleColor` | 暖橙黄系 `#FFD79A`~`#F4A65A` 间随机 | 粒子色(暖光,夜底上发光) |
+| `sizeRange` | 1.5 – 4 px | 粒子半径 |
+| `drift` | 0.15 | 自由漂浮扰动强度 |
+| `damping` | 0.96 | 速度阻尼(越小越黏滞) |
+| `attractRadius` | 220 px | 吸引影响半径 |
+| `attractForce` | 0.6 | 吸引加速度强度 |
+| `breath` | 0.004 | 呼吸闪烁速度 |
+| `glowBlur` | 8 | 柔光模糊半径(shadowBlur 或离屏模糊) |
+
+## 6. 输入层 PointerInput(v1)
+
+- 监听 `pointermove / pointerdown / pointerup / pointercancel`。
+- **桌面**(鼠标/触摸板):光标始终有位置 → `active` 长为 true,粒子持续追光标。
+- **手机**(触屏):无悬停概念 → 按住时 `active=true` 跟手指,松手 `active=false`,粒子散回漂浮(契合氛围页待机)。
+- 多指:v1 只取单点;架构上 `get()` 未来可扩展返回多点(摄像头/多指彩蛋的留白)。
+- 触屏需 `touch-action: none` / 阻止默认滚动手势,避免页面被拖动。
+
+## 7. 留白接口设计(本期不实现,但接口预留)
+
+- **CameraInput(摄像头)**:用 MediaPipe Hands 取手心坐标 → 归一化到画布坐标 → 输出 `{x,y,active}`。未识别到手 → `active=false`。与 PointerInput 完全可替换,`ParticleSystem` 无感。
+- **StarryNightTheme(梵高星空)**:运动内核换成**曲线噪声流场(curl noise)**,粒子沿向量场流动形成旋涡笔触;吸引点局部扰动流场。
+- **RippleTheme(水波)**:吸引点投下扰动,以同心圆波函数向外扩散,粒子随波位移。
+- 主题切换:预留一个简单切换入口(如键盘 `1/2/3` 或 URL 参数 `?theme=firefly`),v1 可先只挂 firefly。
+
+## 8. 错误处理与兼容
+
+- Canvas 尺寸随窗口 resize 自适应,考虑 `devicePixelRatio` 保证高分屏清晰。
+- 不支持 Pointer Events 的老浏览器极少,v1 不做降级(YAGNI);如遇到再加 mouse/touch 回退。
+- 性能:粒子数按屏宽自适应;吸引计算 O(n) 单点,180 粒子完全无压力。
+
+## 9. 验证清单(落地后必须实测)
+
+- [ ] 桌面 Chrome:粒子漂浮自然,光标移动时附近粒子被吸引、聚拢、移开后散回。
+- [ ] 笔记本触摸板:行为与鼠标一致,无断层。
+- [ ] 手机(微信内置浏览器 + Safari/Chrome):手指按住跟手、松手散回;页面不被手势拖动;帧率流畅。
+- [ ] 窗口缩放 / 手机横竖屏切换:画布正确自适应,不变形不模糊。
+- [ ] 直接双击本地文件可玩(file://,鼠标/触摸版无需托管)。
+
+## 10. 我的顾虑 / 待你拍板
+
+1. ~~浅底 vs 深底~~ **已定:深暮色底(B)**。粒子用暖光在夜底上发光,配 `globalCompositeOperation='lighter'` 做亮部叠加,出真正的萤火夜光感,并为后续星空主题铺路。
+2. **项目文件夹名** `glow`(暂定,可改)。
+3. **v1 主题**:已定 = 先做 FireflyTheme(暖光萤火),非直接星空。
+
+> 用深底后,绘制将用叠加混合(`lighter`)让重叠的光更亮,这是夜光感的关键技术点,实现时注意。
+
+## 11. 后续路线图
+
+1. **v1**:外壳 + PointerInput + FireflyTheme,单文件,本地可玩。
+2. **v2**:加 StarryNightTheme(流场),主题可切换。
+3. **v3**:加 CameraInput(MediaPipe,资源本地打包),传国内静态托管,链接分享(含摄像头)。
+4. 可选:RippleTheme、多指、更多意境调色板(陀氏沉郁等)。
