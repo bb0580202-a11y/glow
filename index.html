@@ -303,6 +303,7 @@ camBtn.addEventListener('click', async () => {
     activeInput = pointerInput;
     cameraOn = false;
     camBtn.textContent = '开启摄像头';
+    document.getElementById('camMode').textContent = '';
     return;
   }
   camBtn.disabled = true; camBtn.textContent = '启动中…';
