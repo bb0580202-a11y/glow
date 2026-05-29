@@ -42,8 +42,8 @@ const CONFIG = {
   handGrace: 250,        // 手短暂丢失的宽限毫秒(防 active 闪烁)
   attractForceStrong: 1.4,   // 握拳:强聚
   repelForce: 0.9,           // 张手:推散
-  openThreshold: 1.6,        // 展开度 > 此 → 推散
-  fistThreshold: 1.0,        // 展开度 < 此 → 强聚
+  openThreshold: 0.65,       // 展开度 > 此 → 推散(实测张开≈0.8)
+  fistThreshold: 0.45,       // 展开度 < 此 → 强聚(实测握拳≈0.28)
   breathSpeed: 0.004,
   glowScale: 5,          // 外晕半径 = size × 此值
   haloAlpha: 0.3,        // 外晕亮度(压低,避免灰蒙蒙的薄雾)
