@@ -7,10 +7,25 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000000; }
   canvas { display: block; touch-action: none; }
+  #cam, #scrim, canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+  #cam { object-fit: cover; transform: scaleX(-1); z-index: 0; display: none; }
+  #scrim { background: rgba(0,0,0,0.45); z-index: 1; display: none; }
+  canvas { z-index: 2; }
+  #camBtn {
+    position: fixed; left: 16px; bottom: 16px; z-index: 3;
+    background: rgba(255,255,255,0.08); color: #FFF6E0;
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 999px;
+    padding: 8px 16px; font-size: 13px; cursor: pointer;
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  }
+  #camBtn:hover { background: rgba(255,255,255,0.15); }
 </style>
 </head>
 <body>
+<video id="cam" playsinline muted></video>
+<div id="scrim"></div>
 <canvas id="c"></canvas>
+<button id="camBtn">开启摄像头</button>
 <script>
 "use strict";
 
@@ -201,6 +216,35 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+const camEl = document.getElementById('cam');
+const scrimEl = document.getElementById('scrim');
+const camBtn = document.getElementById('camBtn');
+let camStream = null;
+
+async function enableCamera() {
+  camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+  camEl.srcObject = camStream;
+  await camEl.play();
+  camEl.style.display = 'block';
+  scrimEl.style.display = 'block';
+}
+function disableCamera() {
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  camEl.style.display = 'none';
+  scrimEl.style.display = 'none';
+}
+camBtn.addEventListener('click', async () => {
+  if (camStream) { disableCamera(); camBtn.textContent = '开启摄像头'; return; }
+  camBtn.disabled = true; camBtn.textContent = '启动中…';
+  try {
+    await enableCamera();
+    camBtn.textContent = '关闭摄像头';
+  } catch (e) {
+    alert('摄像头开启失败:' + e.message + '\n(需 HTTPS 或 localhost;file:// 不支持)');
+    camBtn.textContent = '开启摄像头';
+  } finally { camBtn.disabled = false; }
+});
 </script>
 </body>
 </html>
