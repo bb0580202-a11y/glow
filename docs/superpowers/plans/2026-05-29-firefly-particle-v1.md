@@ -6,6 +6,8 @@
 
 **Architecture:** 单文件三段式 —— 通用外壳 `ParticleSystem`(持有粒子+主循环)+ 可插拔 `InputSource`(v1=PointerInput)+ 可插拔 `Theme`(v1=FireflyTheme)。外壳不关心吸引点来自鼠标还是摄像头,也不关心意境是萤火还是星空;换输入/换主题都只是替换接口实现。为后续摄像头(CameraInput)和星空(StarryNightTheme)预留接口。
 
+**物理模型(A 路线):** 运动用 Langevin/Ornstein–Uhlenbeck 过程(高斯白噪声 √dt 缩放 + 黏滞阻力);光斑用平方反比软化衰减;加色混合 `lighter`(光线性叠加)。Canvas 2D 的 sRGB 空间加色为已知近似,真·线性 HDR bloom 留 v2 WebGL。详见设计文档"物理模型"节。
+
 **Tech Stack:** 原生 HTML + Canvas 2D + Pointer Events,无构建、无依赖、无 CDN。
 
 > **测试说明(重要):** 本项目无自动化测试框架(刻意保持单文件无构建)。每个任务的验收 = 在浏览器中用眼睛/操作确认的**具体观察步骤**。这些步骤需由人(项目所有者)在真实浏览器/手机上执行确认——执行 agent 无法替代视觉验收,只能确认代码无报错。
@@ -73,7 +75,7 @@ const CONFIG = {
   countFor(w) { return w < 640 ? 90 : 180; },
   colorStops: ['#FFD79A', '#F4A65A', '#FFC078'],
   sizeMin: 1.5, sizeMax: 4,
-  drift: 0.15, damping: 0.96,
+  gamma: 0.03, sigma: 0.08,        // Ornstein–Uhlenbeck:阻力 / 热噪声
   attractRadius: 220, attractForce: 0.6,
   breathSpeed: 0.004, glowScale: 4,
 };
@@ -129,16 +131,23 @@ git commit -m "feat: 全屏深底画布骨架与渲染循环"
 **Files:**
 - Modify: `/Users/bb/Documents/cursor_practice/glow/index.html`
 
-- [ ] **Step 1: 在 CONFIG 之后、canvas 取得之前插入 Particle 与 ParticleSystem 类**
+- [ ] **Step 1: 在 CONFIG 之后、canvas 取得之前插入高斯随机 + Particle + ParticleSystem**
 
 ```javascript
+// 标准正态随机(Box–Muller),供 Langevin/OU 的高斯白噪声使用
+function gaussian() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
 class Particle {
   constructor(w, h) { this.reset(w, h); }
   reset(w, h) {
     this.x = Math.random() * w;
     this.y = Math.random() * h;
-    this.vx = (Math.random() - 0.5) * 0.3;
-    this.vy = (Math.random() - 0.5) * 0.3;
+    this.vx = 0; this.vy = 0;
     this.size = CONFIG.sizeMin + Math.random() * (CONFIG.sizeMax - CONFIG.sizeMin);
     this.color = CONFIG.colorStops[(Math.random() * CONFIG.colorStops.length) | 0];
     this.phase = Math.random() * Math.PI * 2;
@@ -166,12 +175,13 @@ system.init(W, H);
 
 - [ ] **Step 3: 临时简易运动+绘制(下个任务会被 Theme 取代)**
 
-把 `frame` 里 `// 后续任务...` 那一行替换为:
+把 `frame` 里 `// 后续任务...` 那一行替换为(Ornstein–Uhlenbeck 布朗运动):
 ```javascript
+  // OU 过程:高斯白噪声(√dt 缩放)+ 黏滞阻力 -γv
+  const sqrtDt = Math.sqrt(dt);
   for (const p of system.particles) {
-    p.vx += (Math.random() - 0.5) * CONFIG.drift * dt;
-    p.vy += (Math.random() - 0.5) * CONFIG.drift * dt;
-    p.vx *= CONFIG.damping; p.vy *= CONFIG.damping;
+    p.vx += -CONFIG.gamma * p.vx * dt + CONFIG.sigma * sqrtDt * gaussian();
+    p.vy += -CONFIG.gamma * p.vy * dt + CONFIG.sigma * sqrtDt * gaussian();
     p.x += p.vx * dt; p.y += p.vy * dt;
     if (p.x < 0) p.x += W; if (p.x > W) p.x -= W;
     if (p.y < 0) p.y += H; if (p.y > H) p.y -= H;
