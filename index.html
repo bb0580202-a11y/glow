@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>萤 · 暖光粒子</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0A0C16; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000000; }
   canvas { display: block; touch-action: none; }
 </style>
 </head>
@@ -15,7 +15,7 @@
 "use strict";
 
 const CONFIG = {
-  bgColor: '#0A0C16',    // 干净的纯深色(放弃渐变,让光点跳出来)
+  bgColor: '#000000',    // 纯黑:手机 OLED 上无限对比,光点最干净跳脱
   countFor(w) { return w < 640 ? 90 : 180; },
   colorStops: ['#FFD79A', '#F4A65A', '#FFC078'],
   sizeMin: 1.5, sizeMax: 4,
@@ -23,7 +23,7 @@ const CONFIG = {
   attractRadius: 220, attractForce: 0.6,
   breathSpeed: 0.004,
   glowScale: 5,          // 外晕半径 = size × 此值
-  haloAlpha: 0.55,       // 外晕亮度(带色散射)
+  haloAlpha: 0.3,        // 外晕亮度(压低,避免灰蒙蒙的薄雾)
   coreScale: 1.8,        // 实心亮核半径 = size × 此值
   coreColor: '#FFF6E0',  // 亮核色(近白暖,实心高亮)
 };
