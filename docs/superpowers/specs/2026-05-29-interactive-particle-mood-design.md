@@ -138,7 +138,7 @@ interface Theme {
 
 ## 10. 我的顾虑 / 待你拍板
 
-1. ~~浅底 vs 深底~~ **已定:深暮色底(B)**。粒子用暖光在夜底上发光,配 `globalCompositeOperation='lighter'` 做亮部叠加,出真正的萤火夜光感,并为后续星空主题铺路。
+1. ~~浅底 vs 深底~~ 设计时定深暮色底(B);**最终实现改为纯黑 `#000000`**(深暮色在手机 OLED 上仍显灰)。发光也从单层渐变升级为"实心亮核 + 带色外晕"两层。以 `index.html` 的 `CONFIG` 为准。
 2. **项目文件夹名** `glow`(暂定,可改)。
 3. **v1 主题**:已定 = 先做 FireflyTheme(暖光萤火),非直接星空。
 
@@ -148,5 +148,7 @@ interface Theme {
 
 1. **v1**:外壳 + PointerInput + FireflyTheme,单文件,本地可玩。
 2. **v2**:加 StarryNightTheme(流场),主题可切换。
-3. **v3**:加 CameraInput(MediaPipe,资源本地打包),传国内静态托管,链接分享(含摄像头)。
+3. **v3**:加 CameraInput(MediaPipe,资源本地打包),链接分享(含摄像头)。
 4. 可选:RippleTheme、多指、更多意境调色板(陀氏沉郁等)。
+
+> **实现现状(2026-05-29):** v1 ✅、v3 ✅(摄像头+手势 张手推散/握拳强聚,见 `2026-05-29-camera-handtracking-design.md`)已完成并部署 GitHub Pages(非国内托管,用户暂不需要)。v2 星空流场未做。
