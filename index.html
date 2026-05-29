@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>萤 · 暖光粒子</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #16121F; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0A0C16; }
   canvas { display: block; touch-action: none; }
 </style>
 </head>
@@ -15,13 +15,17 @@
 "use strict";
 
 const CONFIG = {
-  bgColor: '#16121F',
+  bgColor: '#0A0C16',    // 干净的纯深色(放弃渐变,让光点跳出来)
   countFor(w) { return w < 640 ? 90 : 180; },
   colorStops: ['#FFD79A', '#F4A65A', '#FFC078'],
   sizeMin: 1.5, sizeMax: 4,
   gamma: 0.03, sigma: 0.08,
   attractRadius: 220, attractForce: 0.6,
-  breathSpeed: 0.004, glowScale: 4,
+  breathSpeed: 0.004,
+  glowScale: 5,          // 外晕半径 = size × 此值
+  haloAlpha: 0.55,       // 外晕亮度(带色散射)
+  coreScale: 1.8,        // 实心亮核半径 = size × 此值
+  coreColor: '#FFF6E0',  // 亮核色(近白暖,实心高亮)
 };
 
 // 标准正态随机(Box–Muller),供 Langevin/OU 的高斯白噪声使用
@@ -38,7 +42,7 @@ function hexA(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// 发光渐变:按平方反比软化衰减 I(r) ∝ 1/(1+(r/r0)²) 采样多停点,边缘归零。
+// 外晕渐变:按平方反比软化衰减 I(r) ∝ 1/(1+(r/r0)²) 采样多停点,边缘归零。
 // 物理依据:点光源辐照度随距离平方反比衰减(辐射度学)。
 function glowGradient(x, y, radius, color, peak) {
   const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
@@ -51,6 +55,15 @@ function glowGradient(x, y, radius, color, peak) {
   return g;
 }
 
+// 亮核渐变:中间 60% 保持满亮度(实心高亮平台),仅边缘羽化 → 真正"亮的点"。
+function coreGradient(x, y, radius, color, peak) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  g.addColorStop(0, hexA(color, peak));
+  g.addColorStop(0.6, hexA(color, peak));
+  g.addColorStop(1, hexA(color, 0));
+  return g;
+}
+
 class Particle {
   constructor(w, h) { this.reset(w, h); }
   reset(w, h) {
@@ -60,7 +73,7 @@ class Particle {
     this.size = CONFIG.sizeMin + Math.random() * (CONFIG.sizeMax - CONFIG.sizeMin);
     this.color = CONFIG.colorStops[(Math.random() * CONFIG.colorStops.length) | 0];
     this.phase = Math.random() * Math.PI * 2;
-    this.baseAlpha = 0.5 + Math.random() * 0.5;
+    this.baseAlpha = 0.7 + Math.random() * 0.3;
   }
 }
 
@@ -84,6 +97,10 @@ function resize() {
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
+
+// 背景作为画布后面的独立图层(此处用 CSS 纯深色)。
+// 【留白·摄像头】以后把这层换/叠成全屏 <video> 实时画面,粒子(透明画布)即叠在真实环境上。
+document.body.style.background = CONFIG.bgColor;
 window.addEventListener('resize', resize);
 resize();
 
@@ -95,8 +112,7 @@ function frame(now) {
   const dt = Math.min((now - last) / 16.67, 3);
   last = now;
   ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = CONFIG.bgColor;
-  ctx.fillRect(0, 0, W, H);
+  ctx.clearRect(0, 0, W, H); // 透明画布:背景由后面的图层(CSS渐变/未来摄像头)提供
   // Ornstein–Uhlenbeck 布朗运动:高斯白噪声(√dt 缩放)+ 黏滞阻力
   const sqrtDt = Math.sqrt(dt);
   for (const p of system.particles) {
@@ -108,14 +124,19 @@ function frame(now) {
     p.phase += CONFIG.breathSpeed * dt * 16.67;
   }
   // 发光绘制:加色混合(光线性叠加),重叠处更亮
+  // 两层结构:外晕(带色散射,压暗)+ 亮核(近暖白,通透亮点)
   ctx.globalCompositeOperation = 'lighter';
   for (const p of system.particles) {
-    const breath = 0.6 + 0.4 * Math.sin(p.phase);
-    const alpha = p.baseAlpha * breath;
-    const radius = p.size * CONFIG.glowScale;
-    ctx.fillStyle = glowGradient(p.x, p.y, radius, p.color, alpha);
+    const breath = 0.7 + 0.3 * Math.sin(p.phase);
+    const haloR = p.size * CONFIG.glowScale;
+    ctx.fillStyle = glowGradient(p.x, p.y, haloR, p.color, breath * CONFIG.haloAlpha);
     ctx.beginPath();
-    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, haloR, 0, Math.PI * 2);
+    ctx.fill();
+    const coreR = p.size * CONFIG.coreScale;
+    ctx.fillStyle = coreGradient(p.x, p.y, coreR, CONFIG.coreColor, breath * p.baseAlpha);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, coreR, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalCompositeOperation = 'source-over';
