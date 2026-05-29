@@ -213,7 +213,7 @@ git commit -m "feat: 粒子系统与自由漂浮"
 **Files:**
 - Modify: `/Users/bb/Documents/cursor_practice/glow/index.html`
 
-- [ ] **Step 1: 在 Particle 类之前加入颜色辅助函数**
+- [ ] **Step 1: 在 gaussian 函数之后加入颜色与发光渐变辅助函数**
 
 ```javascript
 function hexA(hex, a) {
@@ -221,32 +221,34 @@ function hexA(hex, a) {
   const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
   return `rgba(${r},${g},${b},${a})`;
 }
+
+// 发光渐变:按平方反比软化衰减 I(r) ∝ 1/(1+(r/r0)²) 采样多停点,边缘归零。
+function glowGradient(x, y, radius, color, peak) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  const STOPS = 6;
+  for (let i = 0; i <= STOPS; i++) {
+    const t = i / STOPS;
+    const inten = (1 / (1 + (t * 4) * (t * 4))) * (1 - t);
+    g.addColorStop(t, hexA(color, peak * inten));
+  }
+  return g;
+}
 ```
 
-- [ ] **Step 2: 用发光绘制替换 Task 2 Step 3 的整段 for 循环**
+- [ ] **Step 2: 把 OU 更新循环里的实心点绘制改为相位更新,并在其后加发光绘制循环**
 
-把 frame 里那段 for 循环替换为:
+在 OU 循环里删掉 `ctx.fillStyle = p.color; ... ctx.fill();` 三行,改为相位更新;循环之后加发光绘制:
 ```javascript
-  // 更新
-  for (const p of system.particles) {
-    p.vx += (Math.random() - 0.5) * CONFIG.drift * dt;
-    p.vy += (Math.random() - 0.5) * CONFIG.drift * dt;
-    p.vx *= CONFIG.damping; p.vy *= CONFIG.damping;
-    p.x += p.vx * dt; p.y += p.vy * dt;
-    if (p.x < 0) p.x += W; if (p.x > W) p.x -= W;
-    if (p.y < 0) p.y += H; if (p.y > H) p.y -= H;
+  // (OU 循环内,绕边之后)
     p.phase += CONFIG.breathSpeed * dt * 16.67;
   }
-  // 发光绘制
+  // 发光绘制:加色混合(光线性叠加),重叠处更亮
   ctx.globalCompositeOperation = 'lighter';
   for (const p of system.particles) {
     const breath = 0.6 + 0.4 * Math.sin(p.phase);
     const alpha = p.baseAlpha * breath;
     const radius = p.size * CONFIG.glowScale;
-    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
-    g.addColorStop(0, hexA(p.color, alpha));
-    g.addColorStop(1, hexA(p.color, 0));
-    ctx.fillStyle = g;
+    ctx.fillStyle = glowGradient(p.x, p.y, radius, p.color, alpha);
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fill();

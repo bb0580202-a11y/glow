@@ -32,6 +32,25 @@ function gaussian() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// 发光渐变:按平方反比软化衰减 I(r) ∝ 1/(1+(r/r0)²) 采样多停点,边缘归零。
+// 物理依据:点光源辐照度随距离平方反比衰减(辐射度学)。
+function glowGradient(x, y, radius, color, peak) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  const STOPS = 6;
+  for (let i = 0; i <= STOPS; i++) {
+    const t = i / STOPS;
+    const inten = (1 / (1 + (t * 4) * (t * 4))) * (1 - t);
+    g.addColorStop(t, hexA(color, peak * inten));
+  }
+  return g;
+}
+
 class Particle {
   constructor(w, h) { this.reset(w, h); }
   reset(w, h) {
@@ -86,11 +105,20 @@ function frame(now) {
     p.x += p.vx * dt; p.y += p.vy * dt;
     if (p.x < 0) p.x += W; if (p.x > W) p.x -= W;
     if (p.y < 0) p.y += H; if (p.y > H) p.y -= H;
-    ctx.fillStyle = p.color;
+    p.phase += CONFIG.breathSpeed * dt * 16.67;
+  }
+  // 发光绘制:加色混合(光线性叠加),重叠处更亮
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of system.particles) {
+    const breath = 0.6 + 0.4 * Math.sin(p.phase);
+    const alpha = p.baseAlpha * breath;
+    const radius = p.size * CONFIG.glowScale;
+    ctx.fillStyle = glowGradient(p.x, p.y, radius, p.color, alpha);
     ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.globalCompositeOperation = 'source-over';
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
